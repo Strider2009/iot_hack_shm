@@ -194,30 +194,30 @@ namespace storage_blobs_dotnet_quickstart
                         String originalImage = String.Format("C:\\Users\\peanderson\\Downloads\\test\\{0}", blob.Name.Replace(".json", ".jpg"));
                         string json = File.ReadAllText(filePath);
                         JObject jsonData = JObject.Parse(json);
-                        foreach (JObject item in jsonData["data"][0]["data"]["objects"])
+                        using (Image image = Image.FromFile(originalImage))
                         {
-                            // Create image.
-                            // File.Copy(originalImage, newImage, true);
-                            using (Image image = Image.FromFile(originalImage))
+                            using (var graphics = Graphics.FromImage(image))
                             {
-                                using (var graphics = Graphics.FromImage(image))
+                                var pen = new Pen(Color.HotPink, 2);
+
+                                foreach (JObject item in jsonData["data"][0]["data"]["objects"])
                                 {
-                                    using (var pen = new Pen(Color.HotPink, 2))
+                                    // Create image.
+                                    // File.Copy(originalImage, newImage, true);
+
+                                    foreach (var dataObj in item)
                                     {
-                                        foreach (var dataObj in item)
-                                        {
-                                            if (dataObj.Key != "rectangle") continue;
-                                            int x = int.Parse(dataObj.Value["x"].ToString());
-                                            int y = int.Parse(dataObj.Value["y"].ToString());
-                                            int w = int.Parse(dataObj.Value["w"].ToString());
-                                            int h = int.Parse(dataObj.Value["h"].ToString());
-
-                                            graphics.DrawRectangle(pen, new Rectangle(x, y, w, h));
-                                        }
+                                        if (dataObj.Key != "rectangle") continue;
+                                        int x = int.Parse(dataObj.Value["x"].ToString());
+                                        int y = int.Parse(dataObj.Value["y"].ToString());
+                                        int w = int.Parse(dataObj.Value["w"].ToString());
+                                        int h = int.Parse(dataObj.Value["h"].ToString());
+                                        graphics.DrawRectangle(pen, new Rectangle(x, y, w, h));
                                     }
-
-                                    graphics.Save();
                                 }
+
+                                graphics.Save();
+
                                 image.Save(newImage);
                             }
                         }
