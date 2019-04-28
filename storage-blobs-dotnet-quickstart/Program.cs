@@ -30,10 +30,17 @@ namespace storage_blobs_dotnet_quickstart
     using System;
     using System.IO;
     using System.Threading.Tasks;
+    using System.Linq;
+    using System.Threading;
 
+    using System.Drawing;
+    using Newtonsoft.Json.Linq;
+    using Newtonsoft.Json;
+    using System.Drawing.Drawing2D;
 
     public static class Program
     {
+       
         public static int Main(string[] args)
         {
             Console.WriteLine("Azure Blob storage - .NET Quickstart sample");
@@ -46,22 +53,52 @@ namespace storage_blobs_dotnet_quickstart
                 return 1;
             }
 
+            // upload all the files 
             var files = Directory.GetFiles(args[0]);
-            foreach (String file in files)
-            {
-                ProcessAsync(file).GetAwaiter().GetResult();
-            }
+
+            // loop waiting for the files to be processed
+            Thread t1 = new Thread(() => Upload(files));
+            Thread t2 = new Thread(() => Download());
+
+            t1.Start();
+            t2.Start();
+
+            t1.Join();
+            t2.Join();
+
 
             Console.WriteLine("Press any key to exit the sample application.");
             Console.ReadLine();
             return 0;
         }
 
+        private static void Upload(String[] files)
+        {
+            while (true)
+            {
+                foreach (String file in files)
+                {
+                    ProcessAsync(file).GetAwaiter().GetResult();
+                    Thread.Sleep(6000);
+                }
+            }
+        }
+
+        private static void Download()
+        {
+            while (true)
+            {
+                ProcessBlobsAsync().GetAwaiter().GetResult();
+                Thread.Sleep(6000);
+            }
+        }
+
         private static async Task ProcessAsync(string sourceFile)
         {
             CloudStorageAccount storageAccount = null;
             CloudBlobContainer cloudBlobContainer = null;
-            string storageConnectionString = "DefaultEndpointsProtocol=https;AccountName=iothackshm;AccountKey=FQ2yQ59uInxiGRsBUTURPPA4lb/wbx38KRzfTOWLtAXADejNA9KYRQ+uTEyIAT0j1+ZippOM1o6xWzBpkwDt0Q==;EndpointSuffix=core.windows.net";
+            string storageConnectionString = Environment.GetEnvironmentVariable("azureconnectionstring");
+            //string storageConnectionString = "DefaultEndpointsProtocol=https;AccountName=iothackshm;AccountKey=FQ2yQ59uInxiGRsBUTURPPA4lb/wbx38KRzfTOWLtAXADejNA9KYRQ+uTEyIAT0j1+ZippOM1o6xWzBpkwDt0Q==;EndpointSuffix=core.windows.net";
 
             // Check whether the connection string can be parsed.
             if (CloudStorageAccount.TryParse(storageConnectionString, out storageAccount))
@@ -70,9 +107,8 @@ namespace storage_blobs_dotnet_quickstart
                 {
                     // Create the CloudBlobClient that represents the Blob storage endpoint for the storage account.
                     CloudBlobClient cloudBlobClient = storageAccount.CreateCloudBlobClient();
-
                     // Create a container called 'quickstartblobs' and append a GUID value to it to make the name unique. 
-                    cloudBlobContainer = cloudBlobClient.GetContainerReference("quickstartblobs");
+                    cloudBlobContainer = cloudBlobClient.GetContainerReference("iot-hack-shm");
                     await cloudBlobContainer.CreateIfNotExistsAsync();
 
                     // Set the permissions so the blobs are public. 
@@ -81,9 +117,6 @@ namespace storage_blobs_dotnet_quickstart
                         PublicAccess = BlobContainerPublicAccessType.Blob
                     };
                     await cloudBlobContainer.SetPermissionsAsync(permissions);
-
-                    // Write text to the file.
-                    File.WriteAllText(sourceFile, "Hello, World!");
 
                     Console.WriteLine("Temp file = {0}", sourceFile);
                     Console.WriteLine("Uploading to Blob storage as blob '{0}'", sourceFile);
@@ -111,6 +144,106 @@ namespace storage_blobs_dotnet_quickstart
                     "Add a environment variable named 'storageconnectionstring' with your storage " +
                     "connection string as a value.");
             }
+        }
+
+        private static async Task ProcessBlobsAsync()
+        {
+            String containerReferenceName = "iot-hack-shm-results";
+            CloudStorageAccount storageAccount = null;
+            CloudBlobContainer cloudBlobContainer = null;
+            string storageConnectionString = Environment.GetEnvironmentVariable("azureconnectionstring");
+
+            // Check whether the connection string can be parsed.
+            if (CloudStorageAccount.TryParse(storageConnectionString, out storageAccount))
+            {
+                try
+                {
+                    CloudBlobClient cloudBlobClient = storageAccount.CreateCloudBlobClient();
+                    cloudBlobContainer = cloudBlobClient.GetContainerReference(containerReferenceName);
+
+                    Boolean blobContainerExists = await cloudBlobContainer.ExistsAsync();
+                    if (!blobContainerExists)
+                    {
+                        Console.WriteLine("Container doesn't exist yet, please re-run when it does.");
+                    }
+
+                    // Set the permissions so the blobs are public. 
+                    BlobContainerPermissions permissions = new BlobContainerPermissions
+                    {
+                        PublicAccess = BlobContainerPublicAccessType.Blob
+                    };
+                    await cloudBlobContainer.SetPermissionsAsync(permissions);
+
+
+
+                    // Get a reference to the blob address, then upload the file to the blob.
+                    // Use the value of localFileName for the blob name.
+                    BlobContinuationToken token = null;
+                    var blobResultSegment = await cloudBlobContainer.ListBlobsSegmentedAsync(token);
+                    var blobs = blobResultSegment.Results;
+                    string tempDir = Path.Combine(Path.GetTempPath(), "iothackshm");
+                    Directory.CreateDirectory(tempDir);
+                    foreach (CloudBlockBlob blob in blobs)
+                    {
+                        string filePath = Path.Combine(tempDir, blob.Name);
+                        await blob.DownloadToFileAsync(filePath, FileMode.Create);
+                        await blob.DeleteAsync();
+
+
+                        String newImage = filePath.Replace(".json", ".jpg");
+                        String originalImage = String.Format("C:\\Users\\peanderson\\Downloads\\test\\{0}", blob.Name.Replace(".json", ".jpg"));
+                        string json = File.ReadAllText(filePath);
+                        JObject jsonData = JObject.Parse(json);
+                        foreach (JObject item in jsonData["data"][0]["data"]["objects"])
+                        {
+                            // Create image.
+                            // File.Copy(originalImage, newImage, true);
+                            using (Image image = Image.FromFile(originalImage))
+                            {
+                                using (var graphics = Graphics.FromImage(image))
+                                {
+                                    using (var pen = new Pen(Color.HotPink, 2))
+                                    {
+                                        foreach (var dataObj in item)
+                                        {
+                                            if (dataObj.Key != "rectangle") continue;
+                                            int x = int.Parse(dataObj.Value["x"].ToString());
+                                            int y = int.Parse(dataObj.Value["y"].ToString());
+                                            int w = int.Parse(dataObj.Value["w"].ToString());
+                                            int h = int.Parse(dataObj.Value["h"].ToString());
+
+                                            graphics.DrawRectangle(pen, new Rectangle(x, y, w, h));
+                                        }
+                                    }
+
+                                    graphics.Save();
+                                }
+                                image.Save(newImage);
+                            }
+                        }
+                    }
+                
+                    Console.WriteLine("Done downloading!");
+                    // do app specific stuff 
+                }
+                catch (StorageException ex)
+                {
+                    Console.WriteLine("Error returned from the service: {0}", ex.Message);
+                }
+            }
+            else
+            {
+                Console.WriteLine(
+                    "A connection string has not been defined in the system environment variables. " +
+                    "Add a environment variable named 'storageconnectionstring' with your storage " +
+                    "connection string as a value.");
+            }
+        }
+
+        private static void AnnotateImage(String imagePath)
+        {
+            
+
         }
     }
 }
